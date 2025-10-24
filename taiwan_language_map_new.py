@@ -43,8 +43,42 @@ language_data = {
     "連江縣": {"華語": 95, "閩南語": 90, "客家話": 0.2, "原住民語": 0.1}
 }
 
-def create_popup_content(area_name, lang_data):
-    """創建彈窗內容"""
+def normalize_county_name(name):
+    """統一處理縣市名稱，將「台」統一轉換為「臺」，並處理縣市轉換"""
+    if not name:
+        return name
+    
+    # 處理台/臺的轉換
+    name = name.replace('台', '臺')
+    
+    # 處理特殊的縣市轉換（因行政區劃調整）
+    county_city_mapping = {
+        '桃園縣': '桃園市',
+        '臺北縣': '新北市',
+        '台北縣': '新北市'
+    }
+    
+    return county_city_mapping.get(name, name)
+
+def get_dominant_language(lang_data, exclude_mandarin=False):
+    """獲取使用比例最高的語言，可選擇是否排除華語"""
+    if not lang_data:
+        return None
+    
+    # 創建要比較的語言數據
+    data_to_compare = {}
+    for lang, value in lang_data.items():
+        if exclude_mandarin and lang == "華語":
+            continue
+        data_to_compare[lang] = value
+    
+    if not data_to_compare:
+        return None
+        
+    return max(data_to_compare.items(), key=lambda x: x[1])
+
+def create_popup_content(area_name, lang_data, exclude_mandarin=False):
+    """創建彈窗內容，可以選擇是否排除華語數據"""
     if not lang_data:
         return f"<h4>{area_name}</h4>暫無語言數據"
 
@@ -57,70 +91,81 @@ def create_popup_content(area_name, lang_data):
     # 按使用比例從高到低排序
     sorted_languages = sorted(lang_data.items(), key=lambda x: x[1], reverse=True)
     for lang, percentage in sorted_languages:
+        if exclude_mandarin and lang == "華語":
+            continue
+            
+        # 根據語言類型設定進度條顏色
+        color_map = {
+            '華語': '#FF6B6B',
+            '閩南語': '#4ECB71',
+            '客家話': '#6B8EFF',
+            '原住民語': '#FFD93D'
+        }
+        bar_color = color_map.get(lang, '#4188e0')
+            
         content += f'''
             <div style="margin: 10px 0;">
                 <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
-                    <span>{lang}</span>
+                    <span style="font-weight: bold; color: {bar_color}">{lang}</span>
                     <span>{percentage}%</span>
                 </div>
                 <div style="background-color: #f0f0f0; border-radius: 4px; height: 20px; overflow: hidden;">
-                    <div style="width: {percentage}%; height: 100%; background-color: #4188e0;"></div>
+                    <div style="width: {percentage}%; height: 100%; background-color: {bar_color};"></div>
                 </div>
             </div>
         '''
     content += '</div></div>'
     return content
 
-def get_dominant_language(lang_data):
-    """獲取使用比例最高的語言"""
-    if not lang_data:
-        return None
-    return max(lang_data.items(), key=lambda x: x[1])
-
-def style_function(feature):
-    """定義區域的樣式"""
-    properties = feature['properties']
-    county_name = properties.get('COUNTYNAME')
-    
-    # 使用相同的名稱匹配邏輯
-    normalized_name = normalize_county_name(county_name)
-    possible_names = {
-        normalized_name,
-        county_name,
-        normalized_name.replace('縣', '市') if '縣' in normalized_name else normalized_name,
-        county_name.replace('縣', '市') if '縣' in county_name else county_name
-    }
-    
-    # 尋找匹配的語言數據
-    lang_data = None
-    for name in possible_names:
-        if name in language_data:
-            lang_data = language_data[name]
-            break
-    
-    if lang_data:
-        dominant = get_dominant_language(lang_data)
-        # 根據主要語言設定顏色
-        color_map = {
-            '華語': '#FF6B6B',     # 紅色
-            '閩南語': '#4ECB71',   # 綠色
-            '客家話': '#6B8EFF',   # 藍色
-            '原住民語': '#FFD93D'  # 黃色
+def create_style_function(exclude_mandarin=False):
+    """創建樣式函數，可以設置是否排除華語"""
+    def style_function(feature):
+        """定義區域的樣式"""
+        properties = feature['properties']
+        county_name = properties.get('COUNTYNAME')
+        
+        # 使用相同的名稱匹配邏輯
+        normalized_name = normalize_county_name(county_name)
+        possible_names = {
+            normalized_name,
+            county_name,
+            normalized_name.replace('縣', '市') if '縣' in normalized_name else normalized_name,
+            county_name.replace('縣', '市') if '縣' in county_name else county_name
         }
         
+        # 尋找匹配的語言數據
+        lang_data = None
+        for name in possible_names:
+            if name in language_data:
+                lang_data = language_data[name]
+                break
+        
+        if lang_data:
+            dominant = get_dominant_language(lang_data, exclude_mandarin)
+            if dominant:
+                # 根據主要語言設定顏色
+                color_map = {
+                    '華語': '#FF6B6B',     # 紅色
+                    '閩南語': '#4ECB71',   # 綠色
+                    '客家話': '#6B8EFF',   # 藍色
+                    '原住民語': '#FFD93D'  # 黃色
+                }
+                
+                return {
+                    'fillColor': color_map.get(dominant[0], '#cccccc'),
+                    'color': 'black',
+                    'weight': 1,
+                    'fillOpacity': 0.7
+                }
+        
         return {
-            'fillColor': color_map.get(dominant[0], '#cccccc'),
+            'fillColor': '#cccccc',
             'color': 'black',
             'weight': 1,
-            'fillOpacity': 0.7
+            'fillOpacity': 0.3
         }
     
-    return {
-        'fillColor': '#cccccc',
-        'color': 'black',
-        'weight': 1,
-        'fillOpacity': 0.3
-    }
+    return style_function
 
 def highlight_function(feature):
     """定義滑鼠懸停時的樣式"""
@@ -131,22 +176,44 @@ def highlight_function(feature):
         'fillOpacity': 0.7
     }
 
-def normalize_county_name(name):
-    """統一處理縣市名稱，將「台」統一轉換為「臺」，並處理縣市轉換"""
-    if not name:
-        return name
+def create_language_layers(m, taiwan_geojson, exclude_mandarin=False):
+    """創建地圖圖層，根據是否排除華語來顯示數據"""
+    layer = folium.FeatureGroup(name='語言分布' + ('（排除華語）' if exclude_mandarin else ''))
     
-    # 處理台/臺的轉換
-    name = name.replace('台', '臺')
+    style_func = create_style_function(exclude_mandarin)
     
-    # 處理特殊的縣市轉換（因行政區劃調整）
-    county_city_mapping = {
-        '桃園縣': '桃園市',
-        '臺北縣': '新北市',  # 以防萬一也處理這個
-        '台北縣': '新北市'
-    }
+    for feature in taiwan_geojson['features']:
+        county_name = feature['properties']['COUNTYNAME']
+        normalized_name = normalize_county_name(county_name)
+        display_name = normalized_name
+        
+        # 嘗試不同的名稱版本來匹配語言數據
+        possible_names = {
+            normalized_name,
+            county_name, 
+            normalized_name.replace('縣', '市') if '縣' in normalized_name else normalized_name,
+            county_name.replace('縣', '市') if '縣' in county_name else county_name
+        }
+        
+        # 尋找第一個匹配的數據
+        lang_data = None
+        for name in possible_names:
+            if name in language_data:
+                lang_data = language_data[name]
+                display_name = name
+                break
+        
+        if lang_data:
+            popup_content = create_popup_content(display_name, lang_data, exclude_mandarin)
+            folium.GeoJson(
+                feature,
+                name=county_name,
+                style_function=style_func,
+                highlight_function=highlight_function,
+                popup=folium.Popup(popup_content, max_width=300)
+            ).add_to(layer)
     
-    return county_city_mapping.get(name, name)
+    return layer
 
 def create_language_map():
     """創建台灣語言分布地圖"""
@@ -163,38 +230,20 @@ def create_language_map():
         print("無法創建地圖：缺少地理數據")
         return None
     
-    # 添加 GeoJSON 圖層到地圖，包含彈窗和樣式
-    for feature in taiwan_geojson['features']:
-        county_name = feature['properties']['COUNTYNAME']
-        normalized_name = normalize_county_name(county_name)
-        display_name = normalized_name  # 使用正規化後的名稱顯示
-        
-        # 嘗試不同的名稱版本來匹配語言數據
-        possible_names = {
-            normalized_name,
-            county_name, 
-            normalized_name.replace('縣', '市') if '縣' in normalized_name else normalized_name,
-            county_name.replace('縣', '市') if '縣' in county_name else county_name
-        }
-        
-        # 尋找第一個匹配的數據
-        lang_data = None
-        for name in possible_names:
-            if name in language_data:
-                lang_data = language_data[name]
-                display_name = name  # 使用找到數據的名稱
-                break
-        
-        if lang_data:
-            popup_content = create_popup_content(display_name, lang_data)
-            folium.GeoJson(
-                feature,
-                name=county_name,
-                style_function=style_function,
-                highlight_function=highlight_function,
-                popup=folium.Popup(popup_content, max_width=300)
-            ).add_to(m)
-
+    # 創建包含華語和排除華語的兩個圖層
+    normal_layer = create_language_layers(m, taiwan_geojson, False)
+    exclude_mandarin_layer = create_language_layers(m, taiwan_geojson, True)
+    
+    # 添加圖層到地圖（默認顯示正常圖層）
+    normal_layer.add_to(m)
+    exclude_mandarin_layer.add_to(m)
+    
+    # 添加圖層控制
+    folium.LayerControl(
+        position='topright',
+        collapsed=False
+    ).add_to(m)
+    
     # 添加圖例
     legend_html = '''
     <div style="position: fixed; 
@@ -203,8 +252,8 @@ def create_language_map():
                 background-color: white;
                 padding: 10px;
                 opacity: 0.9;">
-        <p style="margin-bottom: 5px;"><b>台灣主要語言分布</b></p>
-        <p style="margin: 5px 0;"><b>地圖顏色代表該地區使用比例最高的語言：</b></p>
+        <p style="margin-bottom: 5px;"><b>台灣語言分布地圖</b></p>
+        <p style="margin: 5px 0;"><b>顏色代表主要使用語言：</b></p>
         <div style="margin: 5px 0;">
             <span style="display: inline-block; width: 20px; height: 20px; background-color: #FF6B6B; border: 1px solid black;"></span>
             <span style="margin-left: 5px;">華語</span>
@@ -222,11 +271,16 @@ def create_language_map():
             <span style="margin-left: 5px;">原住民語</span>
         </div>
         <hr style="margin: 10px 0;">
-        <p style="margin: 5px 0; text-align: center;"><b>點擊各縣市查看詳細語言使用比例</b></p>
+        <p style="margin: 5px 0;"><b>使用說明：</b></p>
+        <div style="font-size: 12px; margin-top: 5px; color: #666;">
+            1. 右上角可切換是否包含華語<br>
+            2. 點擊區域查看詳細語言比例<br>
+            3. 進度條顏色對應語言類型
+        </div>
     </div>
     '''
     m.get_root().html.add_child(folium.Element(legend_html))
-
+    
     return m
 
 if __name__ == '__main__':
