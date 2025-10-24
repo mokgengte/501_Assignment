@@ -1,0 +1,71 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "臺北市",
+        "county_id": "01"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [121.5598, 25.0598]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "新北市",
+        "county_id": "02"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [121.4657, 25.0157]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "桃園市",
+        "county_id": "03"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [121.3010, 24.9936]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "臺中市",
+        "county_id": "04"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [120.6839, 24.1477]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "臺南市",
+        "county_id": "05"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [120.2133, 23.1417]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "高雄市",
+        "county_id": "06"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [120.3133, 22.6273]
+      }
+    }
+  ]
+}
