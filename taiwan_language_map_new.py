@@ -1,6 +1,8 @@
 import folium
 import json
 import requests
+import csv
+import os
 
 def download_taiwan_geojson():
     """下載台灣縣市邊界的 GeoJSON 數據"""
@@ -13,43 +15,22 @@ def download_taiwan_geojson():
         print(f"無法下載台灣地理數據：{e}")
         return None
 
-# 語言分布數據（包含臺/台的異體寫法）
-language_data = {
-    "臺北市": {"華語": 95, "閩南語": 75, "客家話": 13, "原住民語": 1.5},
-    "台北市": {"華語": 95, "閩南語": 75, "客家話": 13, "原住民語": 1.5},
-    "新北市": {"華語": 93, "閩南語": 78, "客家話": 15, "原住民語": 1.2},
-    "桃園市": {"華語": 90, "閩南語": 65, "客家話": 35, "原住民語": 1.0},
-    "臺中市": {"華語": 92, "閩南語": 82, "客家話": 8, "原住民語": 0.8},
-    "台中市": {"華語": 92, "閩南語": 82, "客家話": 8, "原住民語": 0.8},
-    "臺南市": {"華語": 88, "閩南語": 85, "客家話": 2, "原住民語": 0.5},
-    "台南市": {"華語": 88, "閩南語": 85, "客家話": 2, "原住民語": 0.5},
-    "高雄市": {"華語": 90, "閩南語": 83, "客家話": 4, "原住民語": 0.7},
-    "基隆市": {"華語": 92, "閩南語": 80, "客家話": 3, "原住民語": 0.5},
-    "新竹市": {"華語": 91, "閩南語": 60, "客家話": 40, "原住民語": 0.4},
-    "新竹縣": {"華語": 85, "閩南語": 45, "客家話": 70, "原住民語": 1.2},
-    "苗栗縣": {"華語": 84, "閩南語": 40, "客家話": 65, "原住民語": 1.5},
-    "彰化縣": {"華語": 90, "閩南語": 88, "客家話": 2, "原住民語": 0.3},
-    "南投縣": {"華語": 88, "閩南語": 80, "客家話": 3, "原住民語": 2.5},
-    "雲林縣": {"華語": 87, "閩南語": 90, "客家話": 1, "原住民語": 0.4},
-    "嘉義市": {"華語": 89, "閩南語": 87, "客家話": 2, "原住民語": 0.3},
-    "嘉義縣": {"華語": 86, "閩南語": 89, "客家話": 1, "原住民語": 0.5},
-    "屏東縣": {"華語": 87, "閩南語": 82, "客家話": 8, "原住民語": 3.5},
-    "宜蘭縣": {"華語": 89, "閩南語": 84, "客家話": 2, "原住民語": 2.0},
-    "花蓮縣": {"華語": 88, "閩南語": 65, "客家話": 5, "原住民語": 25.0},
-    "臺東縣": {"華語": 86, "閩南語": 60, "客家話": 3, "原住民語": 35.0},
-    "台東縣": {"華語": 86, "閩南語": 60, "客家話": 3, "原住民語": 35.0},
-    "澎湖縣": {"華語": 89, "閩南語": 95, "客家話": 0.5, "原住民語": 0.1},
-    "金門縣": {"華語": 90, "閩南語": 98, "客家話": 0.2, "原住民語": 0.1},
-    "連江縣": {"華語": 95, "閩南語": 90, "客家話": 0.2, "原住民語": 0.1}
-}
-
 def normalize_county_name(name):
-    """統一處理縣市名稱，將「台」統一轉換為「臺」，並處理縣市轉換"""
+    """統一處理縣市名稱，處理各種異體字和行政區劃變更"""
     if not name:
         return name
     
     # 處理台/臺的轉換
     name = name.replace('台', '臺')
+    
+    # 處理簡繁體字轉換
+    char_mapping = {
+        '云': '雲',  # 云林縣 -> 雲林縣
+        '慄': '栗',  # 苗慄縣 -> 苗栗縣
+    }
+    
+    for old_char, new_char in char_mapping.items():
+        name = name.replace(old_char, new_char)
     
     # 處理特殊的縣市轉換（因行政區劃調整）
     county_city_mapping = {
@@ -59,6 +40,67 @@ def normalize_county_name(name):
     }
     
     return county_city_mapping.get(name, name)
+
+def load_language_data():
+    """從CSV文件載入真實的語言使用數據"""
+    language_data = {}
+    language_notes = {}
+    
+    # 獲取CSV文件路徑
+    csv_path = os.path.join(os.path.dirname(__file__), 'language_data.csv')
+    
+    try:
+        with open(csv_path, 'r', encoding='utf-8') as file:
+            reader = csv.reader(file)
+            rows = list(reader)
+            
+            # 跳過標題行（前兩行）
+            for row in rows[2:]:
+                if len(row) >= 5 and row[0].strip():  # 確保有足夠的欄位且縣市名稱不為空
+                    county = row[0].strip()
+                    try:
+                        mandarin = float(row[1].strip()) if row[1].strip() else 0
+                        taiwanese = float(row[2].strip()) if row[2].strip() else 0
+                        hakka = float(row[3].strip()) if row[3].strip() else 0
+                        indigenous = float(row[4].strip()) if row[4].strip() else 0
+                        note = row[5].strip() if len(row) > 5 and row[5].strip() else None
+                        
+                        # 處理縣市名稱標準化
+                        normalized_county = normalize_county_name(county)
+                        
+                        # 儲存語言數據
+                        lang_dict = {
+                            "華語": mandarin,
+                            "閩南語": taiwanese,
+                            "客家話": hakka,
+                            "原住民語": indigenous
+                        }
+                        
+                        # 同時保存原始名稱和標準化名稱
+                        language_data[county] = lang_dict
+                        language_data[normalized_county] = lang_dict
+                        
+                        # 保存備註信息
+                        if note:
+                            language_notes[county] = note
+                            language_notes[normalized_county] = note
+                            
+                    except ValueError as e:
+                        print(f"數據轉換錯誤 - {county}: {e}")
+                        continue
+                        
+    except FileNotFoundError:
+        print(f"找不到CSV文件: {csv_path}")
+        return {}, {}
+    except Exception as e:
+        print(f"讀取CSV文件錯誤: {e}")
+        return {}, {}
+    
+    print(f"成功載入 {len(language_data)} 個縣市的語言數據")
+    return language_data, language_notes
+
+# 載入真實的語言數據
+language_data, language_notes = load_language_data()
 
 def get_dominant_language(lang_data, exclude_mandarin=False):
     """獲取使用比例最高的語言，可選擇是否排除華語"""
@@ -78,7 +120,7 @@ def get_dominant_language(lang_data, exclude_mandarin=False):
     return max(data_to_compare.items(), key=lambda x: x[1])
 
 def create_popup_content(area_name, lang_data, exclude_mandarin=False):
-    """創建彈窗內容，可以選擇是否排除華語數據"""
+    """創建彈窗內容，可以選擇是否排除華語數據，並包含備註信息"""
     if not lang_data:
         return f"<h4>{area_name}</h4>暫無語言數據"
 
@@ -110,10 +152,22 @@ def create_popup_content(area_name, lang_data, exclude_mandarin=False):
                     <span>{percentage}%</span>
                 </div>
                 <div style="background-color: #f0f0f0; border-radius: 4px; height: 20px; overflow: hidden;">
-                    <div style="width: {percentage}%; height: 100%; background-color: {bar_color};"></div>
+                    <div style="width: {min(percentage, 100)}%; height: 100%; background-color: {bar_color};"></div>
                 </div>
             </div>
         '''
+    
+    # 添加備註信息（如果有的話）
+    if area_name in language_notes:
+        note = language_notes[area_name]
+        content += f'''
+            <hr style="margin: 15px 0; border: none; border-top: 1px solid #ddd;">
+            <div style="background-color: #f8f9fa; padding: 8px; border-radius: 4px; font-size: 12px;">
+                <span style="font-weight: bold; color: #6c757d;">📝 備註：</span>
+                <span style="color: #495057;">{note}</span>
+            </div>
+        '''
+    
     content += '</div></div>'
     return content
 
@@ -270,6 +324,7 @@ def create_language_map():
             var normalData = ''' + json.dumps(taiwan_geojson) + ''';
             var excludeData = ''' + json.dumps(taiwan_geojson) + ''';
             var languageData = ''' + json.dumps(language_data) + ''';
+            var languageNotes = ''' + json.dumps(language_notes) + ''';
             
             // 當前顯示的圖層
             var currentLayers = [];
@@ -277,7 +332,15 @@ def create_language_map():
             // 縣市名稱標準化函數
             function normalizeCountyName(name) {
                 if (!name) return name;
+                
+                // 處理台/臺的轉換
                 name = name.replace(/台/g, '臺');
+                
+                // 處理簡繁體字轉換
+                name = name.replace(/云/g, '雲');  // 云林縣 -> 雲林縣
+                name = name.replace(/慄/g, '栗');  // 苗慄縣 -> 苗栗縣
+                
+                // 處理行政區劃變更
                 var mapping = {
                     '桃園縣': '桃園市',
                     '臺北縣': '新北市',
@@ -331,14 +394,26 @@ def create_language_map():
                     if (excludeMandarin && lang === "華語") continue;
                     
                     var barColor = colorMap[lang] || '#4188e0';
+                    var widthPercent = Math.min(percentage, 100); // 確保寬度不超過100%
                     content += '<div style="margin: 10px 0;">' +
                               '<div style="display: flex; justify-content: space-between; margin-bottom: 2px;">' +
                               '<span style="font-weight: bold; color: ' + barColor + '">' + lang + '</span>' +
                               '<span>' + percentage + '%</span></div>' +
                               '<div style="background-color: #f0f0f0; border-radius: 4px; height: 20px; overflow: hidden;">' +
-                              '<div style="width: ' + percentage + '%; height: 100%; background-color: ' + barColor + ';"></div>' +
+                              '<div style="width: ' + widthPercent + '%; height: 100%; background-color: ' + barColor + ';"></div>' +
                               '</div></div>';
                 }
+                
+                // 添加備註信息（如果有的話）
+                if (languageNotes[areaName]) {
+                    var note = languageNotes[areaName];
+                    content += '<hr style="margin: 15px 0; border: none; border-top: 1px solid #ddd;">' +
+                              '<div style="background-color: #f8f9fa; padding: 8px; border-radius: 4px; font-size: 12px;">' +
+                              '<span style="font-weight: bold; color: #6c757d;">📝 備註：</span>' +
+                              '<span style="color: #495057;">' + note + '</span>' +
+                              '</div>';
+                }
+                
                 content += '</div></div>';
                 return content;
             }
@@ -473,7 +548,8 @@ def create_language_map():
                 background-color: white;
                 padding: 10px;
                 opacity: 0.9;">
-        <p style="margin-bottom: 5px;"><b>台灣語言分布地圖</b></p>
+        <p style="margin-bottom: 5px;"><b>台澎金馬語言分布地圖</b></p>
+        <p style="margin: 3px 0; font-size: 11px; color: #666;">(基於人口普查真實數據)</p>
         <p style="margin: 5px 0;"><b>顏色代表主要使用語言：</b></p>
         <div style="margin: 5px 0;">
             <span style="display: inline-block; width: 20px; height: 20px; background-color: #FF6B6B; border: 1px solid black;"></span>
@@ -496,7 +572,8 @@ def create_language_map():
         <div style="font-size: 12px; margin-top: 5px; color: #666;">
             1. 右上角可切換是否包含華語<br>
             2. 點擊區域查看詳細語言比例<br>
-            3. 進度條顏色對應語言類型
+            3. 部分縣市有額外備註說明<br>
+            4. 數據為主要+次要使用之和
         </div>
     </div>
     '''
