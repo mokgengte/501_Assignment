@@ -230,19 +230,240 @@ def create_language_map():
         print("無法創建地圖：缺少地理數據")
         return None
     
-    # 創建包含華語和排除華語的兩個圖層
+    # 默認只添加包含華語的圖層
     normal_layer = create_language_layers(m, taiwan_geojson, False)
-    exclude_mandarin_layer = create_language_layers(m, taiwan_geojson, True)
-    
-    # 添加圖層到地圖（默認顯示正常圖層）
     normal_layer.add_to(m)
-    exclude_mandarin_layer.add_to(m)
     
-    # 添加圖層控制
-    folium.LayerControl(
-        position='topright',
-        collapsed=False
-    ).add_to(m)
+    # 添加自定義的單選按鈕控制
+    toggle_html = '''
+    <div id="language-toggle" style="position: fixed; 
+                top: 10px; right: 10px; 
+                z-index: 1000;
+                background-color: white;
+                border: 2px solid #ccc;
+                border-radius: 8px;
+                padding: 15px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+                font-family: Arial, sans-serif;">
+        <div style="font-weight: bold; margin-bottom: 12px; color: #333; font-size: 14px;">
+            語言顯示模式
+        </div>
+        <label style="display: block; margin-bottom: 10px; cursor: pointer; font-size: 13px;">
+            <input type="radio" name="language_mode" value="normal" checked 
+                   style="margin-right: 8px; transform: scale(1.2);">
+            <span style="color: #333;">包含華語</span>
+        </label>
+        <label style="display: block; cursor: pointer; font-size: 13px;">
+            <input type="radio" name="language_mode" value="exclude" 
+                   style="margin-right: 8px; transform: scale(1.2);">
+            <span style="color: #333;">排除華語</span>
+        </label>
+    </div>
+    
+    <script>
+        // 等待地圖完全載入
+        document.addEventListener('DOMContentLoaded', function() {
+            // 獲取地圖實例
+            var mapObj = window[Object.keys(window).find(key => key.startsWith('map_'))];
+            
+            // 預先創建兩種模式的GeoJSON數據
+            var normalData = ''' + json.dumps(taiwan_geojson) + ''';
+            var excludeData = ''' + json.dumps(taiwan_geojson) + ''';
+            var languageData = ''' + json.dumps(language_data) + ''';
+            
+            // 當前顯示的圖層
+            var currentLayers = [];
+            
+            // 縣市名稱標準化函數
+            function normalizeCountyName(name) {
+                if (!name) return name;
+                name = name.replace(/台/g, '臺');
+                var mapping = {
+                    '桃園縣': '桃園市',
+                    '臺北縣': '新北市',
+                    '台北縣': '新北市'
+                };
+                return mapping[name] || name;
+            }
+            
+            // 獲取主要語言
+            function getDominantLanguage(langData, excludeMandarin) {
+                if (!langData) return null;
+                var dataToCompare = {};
+                for (var lang in langData) {
+                    if (excludeMandarin && lang === "華語") continue;
+                    dataToCompare[lang] = langData[lang];
+                }
+                if (Object.keys(dataToCompare).length === 0) return null;
+                
+                var maxLang = null;
+                var maxValue = -1;
+                for (var lang in dataToCompare) {
+                    if (dataToCompare[lang] > maxValue) {
+                        maxValue = dataToCompare[lang];
+                        maxLang = lang;
+                    }
+                }
+                return maxLang ? [maxLang, maxValue] : null;
+            }
+            
+            // 創建彈窗內容
+            function createPopupContent(areaName, langData, excludeMandarin) {
+                if (!langData) return "<h4>" + areaName + "</h4>暫無語言數據";
+                
+                var content = '<div style="min-width: 300px"><h4 style="text-align: center">' + 
+                             areaName + '語言使用比例</h4><div style="padding: 10px;">';
+                
+                var sortedLangs = Object.keys(langData).map(function(lang) {
+                    return [lang, langData[lang]];
+                }).sort(function(a, b) { return b[1] - a[1]; });
+                
+                var colorMap = {
+                    '華語': '#FF6B6B',
+                    '閩南語': '#4ECB71', 
+                    '客家話': '#6B8EFF',
+                    '原住民語': '#FFD93D'
+                };
+                
+                for (var i = 0; i < sortedLangs.length; i++) {
+                    var lang = sortedLangs[i][0];
+                    var percentage = sortedLangs[i][1];
+                    if (excludeMandarin && lang === "華語") continue;
+                    
+                    var barColor = colorMap[lang] || '#4188e0';
+                    content += '<div style="margin: 10px 0;">' +
+                              '<div style="display: flex; justify-content: space-between; margin-bottom: 2px;">' +
+                              '<span style="font-weight: bold; color: ' + barColor + '">' + lang + '</span>' +
+                              '<span>' + percentage + '%</span></div>' +
+                              '<div style="background-color: #f0f0f0; border-radius: 4px; height: 20px; overflow: hidden;">' +
+                              '<div style="width: ' + percentage + '%; height: 100%; background-color: ' + barColor + ';"></div>' +
+                              '</div></div>';
+                }
+                content += '</div></div>';
+                return content;
+            }
+            
+            // 獲取樣式
+            function getStyle(feature, excludeMandarin) {
+                var countyName = feature.properties.COUNTYNAME;
+                var normalizedName = normalizeCountyName(countyName);
+                
+                var possibleNames = [
+                    normalizedName,
+                    countyName,
+                    normalizedName.replace('縣', '市'),
+                    countyName.replace('縣', '市')
+                ];
+                
+                var langData = null;
+                for (var i = 0; i < possibleNames.length; i++) {
+                    if (languageData[possibleNames[i]]) {
+                        langData = languageData[possibleNames[i]];
+                        break;
+                    }
+                }
+                
+                if (langData) {
+                    var dominant = getDominantLanguage(langData, excludeMandarin);
+                    if (dominant) {
+                        var colorMap = {
+                            '華語': '#FF6B6B',
+                            '閩南語': '#4ECB71',
+                            '客家話': '#6B8EFF', 
+                            '原住民語': '#FFD93D'
+                        };
+                        return {
+                            fillColor: colorMap[dominant[0]] || '#cccccc',
+                            color: 'black',
+                            weight: 1,
+                            fillOpacity: 0.7
+                        };
+                    }
+                }
+                
+                return {
+                    fillColor: '#cccccc',
+                    color: 'black', 
+                    weight: 1,
+                    fillOpacity: 0.3
+                };
+            }
+            
+            // 清除當前圖層
+            function clearCurrentLayers() {
+                currentLayers.forEach(function(layer) {
+                    mapObj.removeLayer(layer);
+                });
+                currentLayers = [];
+            }
+            
+            // 添加圖層
+            function addLanguageLayers(excludeMandarin) {
+                clearCurrentLayers();
+                
+                normalData.features.forEach(function(feature) {
+                    var countyName = feature.properties.COUNTYNAME;
+                    var normalizedName = normalizeCountyName(countyName);
+                    
+                    var possibleNames = [
+                        normalizedName,
+                        countyName,
+                        normalizedName.replace('縣', '市'),
+                        countyName.replace('縣', '市')
+                    ];
+                    
+                    var langData = null;
+                    var displayName = normalizedName;
+                    for (var i = 0; i < possibleNames.length; i++) {
+                        if (languageData[possibleNames[i]]) {
+                            langData = languageData[possibleNames[i]];
+                            displayName = possibleNames[i];
+                            break;
+                        }
+                    }
+                    
+                    if (langData) {
+                        var style = getStyle(feature, excludeMandarin);
+                        var popupContent = createPopupContent(displayName, langData, excludeMandarin);
+                        
+                        var layer = L.geoJson(feature, {
+                            style: style,
+                            onEachFeature: function(feature, layer) {
+                                layer.bindPopup(popupContent, {maxWidth: 300});
+                                layer.on('mouseover', function() {
+                                    this.setStyle({
+                                        fillColor: "#43484A",
+                                        color: 'black',
+                                        weight: 2,
+                                        fillOpacity: 0.7
+                                    });
+                                });
+                                layer.on('mouseout', function() {
+                                    this.setStyle(style);
+                                });
+                            }
+                        }).addTo(mapObj);
+                        
+                        currentLayers.push(layer);
+                    }
+                });
+            }
+            
+            // 初始化顯示正常模式
+            addLanguageLayers(false);
+            
+            // 監聽單選按鈕變化
+            document.querySelectorAll('input[name="language_mode"]').forEach(function(radio) {
+                radio.addEventListener('change', function() {
+                    var excludeMandarin = this.value === 'exclude';
+                    addLanguageLayers(excludeMandarin);
+                });
+            });
+        });
+    </script>
+    '''
+    
+    m.get_root().html.add_child(folium.Element(toggle_html))
     
     # 添加圖例
     legend_html = '''
